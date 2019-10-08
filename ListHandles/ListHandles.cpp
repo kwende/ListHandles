@@ -135,7 +135,15 @@ int main()
 						SYSTEM_HANDLE handle = pHandleInfo->Handles[c];
 						int procId = handle.dwProcessId;
 
-						if (procId == 12520)
+						//https://github.com/tamentis/psutil/blob/master/psutil/arch/mswindows/process_handles.c
+						//if ((handle.GrantedAccess == 0x0012019f)
+						//	|| (handle.GrantedAccess == 0x001a019f)
+						//	|| (handle.GrantedAccess == 0x00120189)
+						//	|| (handle.GrantedAccess == 0x00100000)
+						//    || (handle.GrantedAccess == 0x00120089)) {
+						//	continue;
+						//}
+						//else
 						{
 							HANDLE hProcess = OpenProcess(PROCESS_DUP_HANDLE, FALSE, procId);
 
@@ -154,27 +162,67 @@ int main()
 									POBJECT_TYPE_INFORMATION otherObjectTypeInfo = (POBJECT_TYPE_INFORMATION)malloc(1024);
 
 									// get the type first. 
-									actualLength = 0;
-									status = NtQueryObject(
-										copiedHandle, // handle
-										(OBJECT_INFORMATION_CLASS)2, // object name information
-										otherObjectTypeInfo, // the name buffer
-										1024, // the size of the name buffer
-										&actualLength // returned length of the object. 
-									);
-									if (NT_SUCCESS(status)
+									//actualLength = 0;
+									//status = NtQueryObject(
+									//	copiedHandle, // handle
+									//	(OBJECT_INFORMATION_CLASS)2, // object name information
+									//	otherObjectTypeInfo, // the name buffer
+									//	1024, // the size of the name buffer
+									//	&actualLength // returned length of the object. 
+									//);
+									/*if (NT_SUCCESS(status)
 										&& otherObjectTypeInfo->Name.Length > 0 &&
-										StrCmpW(L"File", otherObjectTypeInfo->Name.Buffer) == 0)
+										StrCmpW(L"File", otherObjectTypeInfo->Name.Buffer) == 0)*/
+									if(GetFileType(copiedHandle) == FILE_TYPE_DISK)
 									{
-										// then query the name
-										actualLength = 0;
-										status = NtQueryObject(
-											copiedHandle, // handle
-											(OBJECT_INFORMATION_CLASS)1, // object name information
-											otherObjectTypeInfo, // the name buffer
-											1024, // the size of the name buffer
-											&actualLength // returned length of the object. 
-										);
+										//https://github.com/giampaolo/psutil/issues/340#issuecomment-44022236
+										//https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex
+										CHAR szPath[1024]; 
+										DWORD size = GetFinalPathNameByHandleA(
+											copiedHandle,
+											szPath,
+											sizeof(szPath),
+											FILE_NAME_NORMALIZED
+										); 
+
+										if (size != 0 && strstr(szPath, ".ocv"))
+										{
+											printf("%s\n", szPath); 
+											/*DWORD error = GetLastError(); 
+											printf("%d\n", error); */
+										}
+										
+										//FILE_NAME_INFO* nameInfo = (FILE_NAME_INFO*)malloc(10024); 
+										//BOOL success = GetFileInformationByHandleEx(
+										//	copiedHandle,
+										//	FILE_INFO_BY_HANDLE_CLASS::FileNameInfo,
+										//	nameInfo,
+										//	10024
+										//); 
+										//if (success)
+										//{
+										//	nameInfo->FileName[nameInfo->FileNameLength] = 0;
+										//	nameInfo->FileName[nameInfo->FileNameLength + 1] = 0;
+										//	wprintf(L"%s\n", nameInfo->FileName);
+										//}
+										//else
+										//{
+										//	DWORD error = GetLastError(); 
+										//	printf("Error %d\n", error); 
+										//}
+
+										//wprintf(L"Flags: %d, Object Type: %d, Access: %x, ProcId: %d\n", 
+										//	handle.bFlags, handle.bObjectType, handle.GrantedAccess, 
+										//	handle.dwProcessId);
+										//// then query the name
+										//actualLength = 0;
+										//status = NtQueryObject(
+										//	copiedHandle, // handle
+										//	(OBJECT_INFORMATION_CLASS)1, // object name information
+										//	otherObjectTypeInfo, // the name buffer
+										//	1024, // the size of the name buffer
+										//	&actualLength // returned length of the object. 
+										//);
 										//if (NT_SUCCESS(status) &&
 										//	otherObjectTypeInfo->Name.Length > 0 &&
 										//	StrCmpW(otherObjectTypeInfo->Name.Buffer, objectTypeInfo->Name.Buffer) == 0)
@@ -184,11 +232,11 @@ int main()
 										//}
 										//else
 										//{
-											if (StrStrW(otherObjectTypeInfo->Name.Buffer, L".ocv"))
-											{
-												wprintf(L"%s\n", otherObjectTypeInfo->Name.Buffer); 
-												//OutputDebugStringW(otherObjectTypeInfo->Name.Buffer);
-											}
+											//if (StrStrW(otherObjectTypeInfo->Name.Buffer, L".ocv"))
+											//{
+											//	wprintf(L"%s\n", otherObjectTypeInfo->Name.Buffer); 
+											//	//OutputDebugStringW(otherObjectTypeInfo->Name.Buffer);
+											//}
 										//}
 									}
 									::CloseHandle(copiedHandle);
@@ -196,11 +244,11 @@ int main()
 								}
 								CloseHandle(hProcess);
 							}
-							else
+	/*						else
 							{
 								DWORD dw = GetLastError(); 
 								printf("Error opening process %d\n", dw); 
-							}
+							}*/
 						}
 					}
 				}
@@ -222,6 +270,7 @@ int main()
 		}
 	}
 	free(pHandleInfo);
+	printf("done."); 
 	getchar(); 
 
 	//printf("%s, %d, %d\n", objectTypeInfo->Name, pHandleInfo->dwCount, status);
