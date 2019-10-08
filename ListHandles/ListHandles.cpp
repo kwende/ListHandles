@@ -71,6 +71,7 @@ typedef struct _OBJECT_TYPE_INFORMATION {
 	ULONG NonPagedPoolUsage;
 } OBJECT_TYPE_INFORMATION, * POBJECT_TYPE_INFORMATION;
 
+
 int main()
 {
 	FILE* dirFile = NULL; 
@@ -117,8 +118,6 @@ int main()
 						{
 							HANDLE hProcess = OpenProcess(PROCESS_DUP_HANDLE, FALSE, procId);
 
-							// I've heard ramblings we can hang if we 
-							  // query for the name and this is granted access. 
 							if (hProcess != INVALID_HANDLE_VALUE && hProcess > 0)
 							{
 								HANDLE copiedHandle;
