@@ -10,6 +10,12 @@
 #include <io.h>
 #include <shlwapi.h>
 
+BOOL SetPrivilege(
+	HANDLE hToken,          // token handle
+	LPCTSTR Privilege,      // Privilege to enable/disable
+	BOOL bEnablePrivilege   // TRUE to enable.  FALSE to disable
+);
+
 typedef struct _SYSTEM_HANDLE
 {
 	DWORD       dwProcessId;
@@ -75,17 +81,32 @@ typedef struct _OBJECT_TYPE_INFORMATION {
 int main()
 {
 	FILE* dirFile = NULL; 
-	HANDLE handle = (HANDLE)_get_osfhandle(_fileno(dirFile));
+	//HANDLE handle = (HANDLE)_get_osfhandle(_fileno(dirFile));
 	/*OCVRecorderNative::ListOwnersForThisHandle((HANDLE)handle);*/
-	POBJECT_TYPE_INFORMATION objectTypeInfo = (POBJECT_TYPE_INFORMATION)malloc(1024);
-	ULONG actualLength = 0;
-	NTSTATUS status = NtQueryObject(
-		handle, // handle
-		(OBJECT_INFORMATION_CLASS)1, // object name information
-		objectTypeInfo, // the name buffer
-		1024, // the size of the name buffer
-		&actualLength // returned length of the object. 
-	);
+	//POBJECT_TYPE_INFORMATION objectTypeInfo = (POBJECT_TYPE_INFORMATION)malloc(1024);
+	//ULONG actualLength = 0;
+	//NTSTATUS status = NtQueryObject(
+	//	handle, // handle
+	//	(OBJECT_INFORMATION_CLASS)1, // object name information
+	//	objectTypeInfo, // the name buffer
+	//	1024, // the size of the name buffer
+	//	&actualLength // returned length of the object. 
+	//);
+	HANDLE threadToken; 
+	BOOL givenRights = OpenThreadToken(GetCurrentThread(),
+		TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, FALSE, &threadToken); 
+	DWORD lastError = GetLastError(); 
+	if (lastError == ERROR_NO_TOKEN)
+	{
+		ImpersonateSelf(SecurityImpersonation); 
+		givenRights = OpenThreadToken(GetCurrentThread(),
+			TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, FALSE, &threadToken);
+	}
+
+	givenRights = SetPrivilege(threadToken, SE_DEBUG_NAME, TRUE);
+
+	NTSTATUS status = 0; 
+	ULONG actualLength = 0; 
 
 	PSYSTEM_HANDLE_INFORMATION pHandleInfo = (PSYSTEM_HANDLE_INFORMATION)malloc(0x10000);
 	int size = 0x10000;
@@ -114,7 +135,7 @@ int main()
 						SYSTEM_HANDLE handle = pHandleInfo->Handles[c];
 						int procId = handle.dwProcessId;
 
-						if (procId != currentProcessId)
+						if (procId == 12520)
 						{
 							HANDLE hProcess = OpenProcess(PROCESS_DUP_HANDLE, FALSE, procId);
 
@@ -154,30 +175,37 @@ int main()
 											1024, // the size of the name buffer
 											&actualLength // returned length of the object. 
 										);
-										if (NT_SUCCESS(status) &&
-											otherObjectTypeInfo->Name.Length > 0 &&
-											StrCmpW(otherObjectTypeInfo->Name.Buffer, objectTypeInfo->Name.Buffer) == 0)
-										{
-											// found another process with this same handle open. 
-											break;
-										}
-										else
-										{
+										//if (NT_SUCCESS(status) &&
+										//	otherObjectTypeInfo->Name.Length > 0 &&
+										//	StrCmpW(otherObjectTypeInfo->Name.Buffer, objectTypeInfo->Name.Buffer) == 0)
+										//{
+										//	// found another process with this same handle open. 
+										//	break;
+										//}
+										//else
+										//{
 											if (StrStrW(otherObjectTypeInfo->Name.Buffer, L".ocv"))
 											{
-												OutputDebugStringW(otherObjectTypeInfo->Name.Buffer);
+												wprintf(L"%s\n", otherObjectTypeInfo->Name.Buffer); 
+												//OutputDebugStringW(otherObjectTypeInfo->Name.Buffer);
 											}
-										}
+										//}
 									}
 									::CloseHandle(copiedHandle);
 									free(otherObjectTypeInfo);
 								}
 								CloseHandle(hProcess);
 							}
+							else
+							{
+								DWORD dw = GetLastError(); 
+								printf("Error opening process %d\n", dw); 
+							}
 						}
 					}
 				}
 			}
+			break; 
 		}
 		else
 		{
@@ -194,7 +222,93 @@ int main()
 		}
 	}
 	free(pHandleInfo);
+	getchar(); 
 
-	printf("%s, %d, %d\n", objectTypeInfo->Name, pHandleInfo->dwCount, status);
-	_close((int)handle);
+	//printf("%s, %d, %d\n", objectTypeInfo->Name, pHandleInfo->dwCount, status);
+	//_close((int)handle);
 }
+
+BOOL SetPrivilege(
+	HANDLE hToken,          // token handle
+	LPCTSTR Privilege,      // Privilege to enable/disable
+	BOOL bEnablePrivilege   // TRUE to enable.  FALSE to disable
+)
+{
+	TOKEN_PRIVILEGES tp;
+	LUID luid;
+	TOKEN_PRIVILEGES tpPrevious;
+	DWORD cbPrevious = sizeof(TOKEN_PRIVILEGES);
+
+	if (!LookupPrivilegeValue(NULL, Privilege, &luid)) return FALSE;
+
+	// 
+	// first pass.  get current privilege setting
+	// 
+	tp.PrivilegeCount = 1;
+	tp.Privileges[0].Luid = luid;
+	tp.Privileges[0].Attributes = 0;
+
+	AdjustTokenPrivileges(
+		hToken,
+		FALSE,
+		&tp,
+		sizeof(TOKEN_PRIVILEGES),
+		&tpPrevious,
+		&cbPrevious
+	);
+
+	if (GetLastError() != ERROR_SUCCESS) return FALSE;
+
+	// 
+	// second pass.  set privilege based on previous setting
+	// 
+	tpPrevious.PrivilegeCount = 1;
+	tpPrevious.Privileges[0].Luid = luid;
+
+	if (bEnablePrivilege) {
+		tpPrevious.Privileges[0].Attributes |= (SE_PRIVILEGE_ENABLED);
+	}
+	else {
+		tpPrevious.Privileges[0].Attributes ^= (SE_PRIVILEGE_ENABLED &
+			tpPrevious.Privileges[0].Attributes);
+	}
+
+	AdjustTokenPrivileges(
+		hToken,
+		FALSE,
+		&tpPrevious,
+		cbPrevious,
+		NULL,
+		NULL
+	);
+
+	if (GetLastError() != ERROR_SUCCESS) return FALSE;
+
+	return TRUE;
+}
+//BOOL SetPrivilege(
+//	HANDLE hToken,  // token handle 
+//	LPCTSTR Privilege,  // Privilege to enable/disable 
+//	BOOL bEnablePrivilege  // TRUE to enable. FALSE to disable 
+//)
+//{
+//	TOKEN_PRIVILEGES tp = { 0 };
+//	// Initialize everything to zero 
+//	LUID luid;
+//	DWORD cb = sizeof(TOKEN_PRIVILEGES);
+//	if (!LookupPrivilegeValue(NULL, Privilege, &luid))
+//		return FALSE;
+//	tp.PrivilegeCount = 1;
+//	tp.Privileges[0].Luid = luid;
+//	if (bEnablePrivilege) {
+//		tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+//	}
+//	else {
+//		tp.Privileges[0].Attributes = 0;
+//	}
+//	AdjustTokenPrivileges(hToken, FALSE, &tp, cb, NULL, NULL);
+//	if (GetLastError() != ERROR_SUCCESS)
+//		return FALSE;
+//
+//	return TRUE;
+//}
